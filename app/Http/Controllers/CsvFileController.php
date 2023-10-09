@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Exports\CsvFilesExport;
 use App\Jobs\ProcessCsv;
 use App\Models\CsvFile;
 use Exception;
@@ -11,13 +10,32 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
-use function Laravel\Prompts\error;
-
 class CsvFileController extends Controller
 {
     public function index()
     {
-        return view('welcome');
+        return view('welcome', [
+            'files' => $this->getCollection()
+        ]);
+    }
+
+    public function getCsvRows()
+    {
+        return response()->json([
+            'message' => 'Table reloaded.',
+            'tableRows' => view('partials.table-rows', [
+                'files' => $this->getCollection()
+            ])->render(),
+        ]);
+    }
+
+    private function getCollection()
+    {
+        $files = CsvFile::select('id', 'filename', 'status', 'created_at')
+            ->orderBy('created_at', 'DESC')
+            ->get();
+
+        return $files;
     }
 
     /**
@@ -46,6 +64,7 @@ class CsvFileController extends Controller
 
             if (Storage::exists($path) && $csvFile->exists) {
                 DB::commit();
+                // \Excel::import(new CsvFilesExport($csvFile->id, $csvFile->created_at), Storage::path($csvFile->path));
                 ProcessCsv::dispatch($csvFile);
 
                 return response()->json(['message' => 'File uploaded successfully, job added to queue.'], 200);

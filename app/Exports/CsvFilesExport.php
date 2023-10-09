@@ -5,21 +5,33 @@ namespace App\Exports;
 use App\Models\Product;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Maatwebsite\Excel\Concerns\RemembersChunkOffset;
 use Maatwebsite\Excel\Concerns\ToCollection;
+use Maatwebsite\Excel\Concerns\WithChunkReading;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
+use Maatwebsite\Excel\Concerns\WithEvents;
+use Maatwebsite\Excel\Events\BeforeImport;
 
-class CsvFilesExport implements ToCollection, WithHeadingRow
+class CsvFilesExport implements ToCollection, WithHeadingRow, WithEvents, WithChunkReading
 {
-    public Carbon $jobTimestamp;
+    use RemembersChunkOffset;
 
-    public function __construct(Carbon $jobTimestamp)
+    public Carbon $jobTimestamp;
+    public $jobId;
+
+    public function __construct($jobId, Carbon $jobTimestamp)
     {
+        $this->jobId = $jobId;
         $this->jobTimestamp = $jobTimestamp;
     }
 
     public function collection(Collection $rows)
     {
+        Log::info('csvFileId: ' . $this->jobId . ', rowNumber: ' . $this->getChunkOffset());
+        Cache::put('index:' . $this->jobId, $this->getChunkOffset(), 300);
+
         foreach ($rows as $row) {
             $uniqueKey = $this->removeNonUtf8($row['UNIQUE_KEY']);
             $productTitle = $this->removeNonUtf8($row['PRODUCT_TITLE']);
@@ -51,7 +63,7 @@ class CsvFilesExport implements ToCollection, WithHeadingRow
             // Newly created Product's updated_at must be greater than the timestamp of Job creation
             // Only the first() from above can possibly run the codes below
             if (($this->jobTimestamp)->greaterThan($product->updated_at)) {
-                Log::info('productId: ' . $product->id . ' updated.');
+                Log::info('productId: ' . $product->id . ', uniqueKey: ' . $product->unique_key . ' updated.');
 
                 $product->update([
                     'product_title' => $productTitle,
@@ -72,8 +84,19 @@ class CsvFilesExport implements ToCollection, WithHeadingRow
         return preg_replace('/[\x00-\x1F\x7F\xA0]/u', '', $string);
     }
 
+    public function registerEvents(): array
+    {
+        return [
+            BeforeImport::class => function(BeforeImport $event) {
+                $totalRows = $event->getReader()->getTotalRows()['Worksheet'];
+
+                Cache::put('total:' . $this->jobId, $totalRows, 3600);
+            },
+        ];
+    }
+
     public function chunkSize(): int
     {
-        return 100;
+        return 1000;
     }
 }

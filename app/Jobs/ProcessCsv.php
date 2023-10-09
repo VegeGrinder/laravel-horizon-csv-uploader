@@ -11,7 +11,6 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -21,7 +20,8 @@ class ProcessCsv implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public CsvFile $csvFile;
-    public $timeout = 300;
+    public $timeout = 3000;
+    public $retryAfter = 3200;
 
     /**
      * Create a new job instance.
@@ -40,16 +40,12 @@ class ProcessCsv implements ShouldQueue
             Log::info('csvFileId: ' . $this->csvFile->id . ' job processing.');
             CsvFile::where('id', $this->csvFile->id)->update(['status' => CsvFileStatus::PROCESSING]);
 
-            DB::beginTransaction();
+            \Excel::import(new CsvFilesExport($this->csvFile->id, $this->csvFile->created_at), Storage::path($this->csvFile->path));
 
-            \Excel::import(new CsvFilesExport($this->csvFile->created_at), Storage::path($this->csvFile->path));
             CsvFile::where('id', $this->csvFile->id)->update(['status' => CsvFileStatus::COMPLETED]);
-
-            DB::commit();
             Storage::delete($this->csvFile->path);
             Log::info('csvFileId: ' . $this->csvFile->id . ' job success.');
         } catch (Exception $ex) {
-            DB::rollBack();
             Log::info($ex->getMessage());
             Log::info('csvFileId: ' . $this->csvFile->id . ' job attempt failed.');
         }

@@ -15,4 +15,5 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::get('/', [CsvFileController::class, 'index'])->name('csv.index');
+Route::get('/csv-rows', [CsvFileController::class, 'getCsvRows'])->name('csv.refreshRows');
 Route::post('/upload-csv', [CsvFileController::class, 'uploadCsv'])->name('csv.uploadCsv');
